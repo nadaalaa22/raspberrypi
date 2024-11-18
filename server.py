@@ -55,21 +55,34 @@ def video_player():
         if CURRENT_VIDEO:
             video_path = os.path.join(UPLOAD_FOLDER, CURRENT_VIDEO)
             cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)  
+            fps = cap.get(cv2.CAP_PROP_FPS)
+
+            # الحصول على أبعاد الشاشة بالكامل
+            screen_width = cv2.getWindowImageRect('Video Player')[2] if cv2.getWindowImageRect('Video Player') else 1920
+            screen_height = cv2.getWindowImageRect('Video Player')[3] if cv2.getWindowImageRect('Video Player') else 1080
+
+            cv2.namedWindow('Video Player', cv2.WINDOW_NORMAL)
+            cv2.setWindowProperty('Video Player', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
             while cap.isOpened() and CURRENT_VIDEO:
                 ret, frame = cap.read()
                 if not ret:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
 
-               
-                cv2.namedWindow('Video Player', cv2.WINDOW_NORMAL)
-                cv2.resizeWindow('Video Player', 600, 700)  
+                # الحصول على أبعاد الإطار الأصلي
+                original_height, original_width = frame.shape[:2]
+                aspect_ratio = original_width / original_height
 
-               
-                frame = cv2.resize(frame, (800, 600))  
+                # تحديد أبعاد الفيديو بما يتناسب مع الشاشة مع الحفاظ على نسبة العرض إلى الارتفاع
+                if (screen_width / screen_height) > aspect_ratio:
+                    new_height = screen_height
+                    new_width = int(new_height * aspect_ratio)
+                else:
+                    new_width = screen_width
+                    new_height = int(new_width / aspect_ratio)
 
+                frame = cv2.resize(frame, (new_width, new_height))
                 cv2.imshow('Video Player', frame)
 
                 wait_time = int(1000 / fps) if fps > 0 else 30
