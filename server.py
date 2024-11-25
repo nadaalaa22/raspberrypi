@@ -45,6 +45,24 @@ def play_video(video_name):
     CURRENT_PLAYING.set()
     return f'Playing video: {video_name}', 200
 
+@app.route('/delete/<video_name>', methods=['DELETE'])
+def delete_video(video_name):
+    print(f"Attempting to delete video: {video_name}")
+    video_path = os.path.join(UPLOAD_FOLDER, video_name)
+    if not os.path.exists(video_path):
+        print(f"Video not found: {video_path}")
+        return jsonify({"message": "Video not found"}), 404
+
+    try:
+        os.remove(video_path)
+        print(f"Video deleted: {video_path}")
+        return jsonify({"message": f"Video {video_name} deleted successfully"}), 200
+    except Exception as e:
+        print(f"Error deleting video: {e}")
+        return jsonify({"message": f"Error deleting video: {str(e)}"}), 500
+
+
+
 def video_player():
     global CURRENT_VIDEO, CURRENT_PLAYING
 
@@ -55,21 +73,19 @@ def video_player():
         if CURRENT_VIDEO:
             video_path = os.path.join(UPLOAD_FOLDER, CURRENT_VIDEO)
             cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)  
+            fps = cap.get(cv2.CAP_PROP_FPS)
 
             while cap.isOpened() and CURRENT_VIDEO:
                 ret, frame = cap.read()
                 if not ret:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop the video
                     continue
 
-               
+                # Create a named window and set it to full screen
                 cv2.namedWindow('Video Player', cv2.WINDOW_NORMAL)
-                cv2.resizeWindow('Video Player', 600, 700)  
+                cv2.setWindowProperty('Video Player', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
-               
-                frame = cv2.resize(frame, (800, 600))  
-
+                # Display the frame
                 cv2.imshow('Video Player', frame)
 
                 wait_time = int(1000 / fps) if fps > 0 else 30
@@ -82,7 +98,7 @@ def video_player():
 
             cap.release()
             cv2.destroyAllWindows()
-            
+
 if __name__ == '__main__':
     video_thread = threading.Thread(target=video_player, daemon=True)
     video_thread.start()
