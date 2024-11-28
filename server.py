@@ -1,7 +1,8 @@
 import cv2
 import threading
 import os
-from flask import Flask, request, jsonify
+import json
+from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__)
 
@@ -9,6 +10,7 @@ UPLOAD_FOLDER = 'videos'
 CURRENT_VIDEO = None
 CURRENT_PLAYING = threading.Event()
 CURRENT_PLAYING.set()
+SETTINGS_FILE = 'settings.json'
 video_thread = None
 
 if not os.path.exists(UPLOAD_FOLDER):
@@ -26,8 +28,8 @@ def upload_video():
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(file_path)
 
-    CURRENT_VIDEO = file.filename
-    CURRENT_PLAYING.set()
+    # CURRENT_VIDEO = file.filename
+    # CURRENT_PLAYING.set()
     return 'Video uploaded successfully', 200
 
 @app.route('/videos', methods=['GET'])
@@ -35,15 +37,64 @@ def list_videos():
     videos = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.mp4', '.avi', '.mov'))]
     return jsonify(videos), 200
 
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'r') as file:
+            return json.load(file)
+    return {}
+
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, 'w') as file:
+        json.dump(settings, file, indent=4)
+
 @app.route('/play/<video_name>', methods=['GET'])
 def play_video(video_name):
     global CURRENT_VIDEO, CURRENT_PLAYING
+
+    settings = load_settings()  # تحميل الإعدادات
     if not os.path.exists(os.path.join(UPLOAD_FOLDER, video_name)):
         return 'Video not found', 404
 
     CURRENT_VIDEO = video_name
     CURRENT_PLAYING.set()
-    return f'Playing video: {video_name}', 200
+
+    # استرجاع مستوى الصوت المحفوظ إذا كان موجودًا
+    volume = settings.get(video_name, {}).get('volume', 1.0)
+    print(f'Playing video: {video_name} with volume: {volume}')
+
+    return jsonify({
+        "message": f"Playing video: {video_name}",
+        "volume": volume
+    }), 200
+
+@app.route('/update_settings', methods=['POST'])
+def update_settings():
+    global CURRENT_VIDEO, CURRENT_PLAYING
+
+    data = request.json
+    if not CURRENT_VIDEO:
+        return jsonify({"message": "No video is currently playing"}), 400
+
+    settings = load_settings()
+
+    # تحديث إعدادات الفيديو الحالي
+    volume = data.get("volume", 1.0)
+    action = data.get("action", "play")
+
+    print(f"Updating settings: Volume={volume}, Action={action}")
+
+    if action == "pause":
+        CURRENT_PLAYING.clear()
+    elif action == "play":
+        CURRENT_PLAYING.set()
+
+    # حفظ إعدادات الصوت الجديدة
+    settings[CURRENT_VIDEO] = settings.get(CURRENT_VIDEO, {})
+    settings[CURRENT_VIDEO]['volume'] = volume
+    save_settings(settings)
+
+    return jsonify({"message": "Settings updated successfully"}), 200
 
 @app.route('/delete/<video_name>', methods=['DELETE'])
 def delete_video(video_name):
@@ -61,6 +112,14 @@ def delete_video(video_name):
         print(f"Error deleting video: {e}")
         return jsonify({"message": f"Error deleting video: {str(e)}"}), 500
 
+@app.route('/videos/<video_name>', methods=['GET'])
+def get_video(video_name):
+    video_path = os.path.join(UPLOAD_FOLDER, video_name)
+    print(f"Attempting to access: {video_path}")  # طباعة المسار
+    if not os.path.exists(video_path):
+        print(f"Video not found at: {video_path}")  # إذا لم يتم العثور على الفيديو
+        return 'Video not found', 404
+    return send_from_directory(UPLOAD_FOLDER, video_name)
 
 
 def video_player():
