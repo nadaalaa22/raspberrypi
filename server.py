@@ -1,7 +1,7 @@
 import cv2
 import threading
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__)
 
@@ -26,8 +26,8 @@ def upload_video():
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(file_path)
 
-    CURRENT_VIDEO = file.filename
-    CURRENT_PLAYING.set()
+    # CURRENT_VIDEO = file.filename
+    # CURRENT_PLAYING.set()
     return 'Video uploaded successfully', 200
 
 @app.route('/videos', methods=['GET'])
@@ -60,6 +60,37 @@ def delete_video(video_name):
     except Exception as e:
         print(f"Error deleting video: {e}")
         return jsonify({"message": f"Error deleting video: {str(e)}"}), 500
+
+
+@app.route('/update_settings', methods=['POST'])
+def update_settings():
+    global CURRENT_VIDEO, CURRENT_PLAYING
+
+    data = request.json
+    if not CURRENT_VIDEO:
+        return jsonify({"message": "No video is currently playing"}), 400
+
+    
+    volume = data.get("volume", 1.0)  
+    action = data.get("action", "play")  
+
+   
+    print(f"Updating settings: Volume={volume}, Action={action}")
+    if action == "pause":
+        CURRENT_PLAYING.clear()
+    elif action == "play":
+        CURRENT_PLAYING.set()
+
+    return jsonify({"message": "Settings updated successfully"}), 200
+
+@app.route('/videos/<video_name>', methods=['GET'])
+def get_video(video_name):
+    video_path = os.path.join(UPLOAD_FOLDER, video_name)
+    print(f"Attempting to access: {video_path}")  # طباعة المسار
+    if not os.path.exists(video_path):
+        print(f"Video not found at: {video_path}")  # إذا لم يتم العثور على الفيديو
+        return 'Video not found', 404
+    return send_from_directory(UPLOAD_FOLDER,video_name)
 
 
 
