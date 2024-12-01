@@ -3,6 +3,7 @@ import threading
 import os
 import json
 from flask import Flask, request, jsonify, send_from_directory
+from ffpyplayer.player import MediaPlayer  # type: ignore # استخدام مكتبة ffpyplayer لتشغيل الصوت والفيديو
 
 app = Flask(__name__)
 
@@ -28,8 +29,6 @@ def upload_video():
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(file_path)
 
-    # CURRENT_VIDEO = file.filename
-    # CURRENT_PLAYING.set()
     return 'Video uploaded successfully', 200
 
 @app.route('/videos', methods=['GET'])
@@ -40,8 +39,16 @@ def list_videos():
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as file:
-            return json.load(file)
-    return {}
+            try:
+                settings = json.load(file)
+                print("Loaded settings:", settings)
+                return settings
+            except json.JSONDecodeError:
+                print("Error: Invalid JSON format")
+                return {"volume": 1.0}
+    else:
+        print("Settings file not found, using default settings.")
+        return {"volume": 1.0}
 
 
 def save_settings(settings):
@@ -59,7 +66,6 @@ def play_video(video_name):
     CURRENT_VIDEO = video_name
     CURRENT_PLAYING.set()
 
-    # استرجاع مستوى الصوت المحفوظ إذا كان موجودًا
     volume = settings.get(video_name, {}).get('volume', 1.0)
     print(f'Playing video: {video_name} with volume: {volume}')
 
@@ -78,18 +84,15 @@ def update_settings():
 
     settings = load_settings()
 
-    # تحديث إعدادات الفيديو الحالي
-    volume = data.get("volume", 1.0)
-    action = data.get("action", "play")
-
-    print(f"Updating settings: Volume={volume}, Action={action}")
+    volume = data.get("volume", 1.0)  # الحصول على حجم الصوت الجديد
+    action = data.get("action", "play")  # تحديد الإجراء المطلوب
 
     if action == "pause":
-        CURRENT_PLAYING.clear()
+        CURRENT_PLAYING.clear()  # إيقاف الفيديو
     elif action == "play":
-        CURRENT_PLAYING.set()
+        CURRENT_PLAYING.set()  # استئناف الفيديو
 
-    # حفظ إعدادات الصوت الجديدة
+    # تحديث إعدادات الصوت
     settings[CURRENT_VIDEO] = settings.get(CURRENT_VIDEO, {})
     settings[CURRENT_VIDEO]['volume'] = volume
     save_settings(settings)
@@ -98,54 +101,55 @@ def update_settings():
 
 @app.route('/delete/<video_name>', methods=['DELETE'])
 def delete_video(video_name):
-    print(f"Attempting to delete video: {video_name}")
     video_path = os.path.join(UPLOAD_FOLDER, video_name)
     if not os.path.exists(video_path):
-        print(f"Video not found: {video_path}")
         return jsonify({"message": "Video not found"}), 404
 
     try:
         os.remove(video_path)
-        print(f"Video deleted: {video_path}")
         return jsonify({"message": f"Video {video_name} deleted successfully"}), 200
     except Exception as e:
-        print(f"Error deleting video: {e}")
         return jsonify({"message": f"Error deleting video: {str(e)}"}), 500
 
 @app.route('/videos/<video_name>', methods=['GET'])
 def get_video(video_name):
     video_path = os.path.join(UPLOAD_FOLDER, video_name)
-    print(f"Attempting to access: {video_path}")  # طباعة المسار
     if not os.path.exists(video_path):
-        print(f"Video not found at: {video_path}")  # إذا لم يتم العثور على الفيديو
         return 'Video not found', 404
     return send_from_directory(UPLOAD_FOLDER, video_name)
-
 
 def video_player():
     global CURRENT_VIDEO, CURRENT_PLAYING
 
     while True:
-        CURRENT_PLAYING.wait()
-        CURRENT_PLAYING.clear()
+        CURRENT_PLAYING.wait()  # الانتظار حتى يتم التفعيل
+        CURRENT_PLAYING.clear()  # إيقاف الانتظار بعد تشغيل الفيديو
 
         if CURRENT_VIDEO:
             video_path = os.path.join(UPLOAD_FOLDER, CURRENT_VIDEO)
-            cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)
 
-            while cap.isOpened() and CURRENT_VIDEO:
-                ret, frame = cap.read()
+            player = MediaPlayer(video_path)
+            camera = cv2.VideoCapture(video_path)
+            fps = camera.get(cv2.CAP_PROP_FPS)
+
+            # تحميل الإعدادات
+            settings = load_settings()
+            volume = settings.get(CURRENT_VIDEO, {}).get('volume', 1.0)
+            player.set_volume(volume)  # تعيين مستوى الصوت
+
+            while camera.isOpened() and CURRENT_VIDEO:
+                ret, frame = camera.read()
+                audio_frame, val = player.get_frame()
+
                 if not ret:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop the video
+                    camera.set(cv2.CAP_PROP_POS_FRAMES, 0)  
                     continue
 
-                # Create a named window and set it to full screen
-                cv2.namedWindow('Video Player', cv2.WINDOW_NORMAL)
-                cv2.setWindowProperty('Video Player', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
-                # Display the frame
+                frame = cv2.resize(frame, (720, 480))
                 cv2.imshow('Video Player', frame)
+
+                if val != 'eof' and audio_frame is not None:
+                    pass  # إذا كنت بحاجة إلى التعامل مع الصوت بشكل مباشر
 
                 wait_time = int(1000 / fps) if fps > 0 else 30
                 if cv2.waitKey(wait_time) & 0xFF == ord('q'):
@@ -155,7 +159,7 @@ def video_player():
                 if CURRENT_PLAYING.is_set():
                     break
 
-            cap.release()
+            camera.release()
             cv2.destroyAllWindows()
 
 if __name__ == '__main__':
