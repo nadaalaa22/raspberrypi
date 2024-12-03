@@ -92,8 +92,6 @@ def get_video(video_name):
         return 'Video not found', 404
     return send_from_directory(UPLOAD_FOLDER,video_name)
 
-
-
 def video_player():
     global CURRENT_VIDEO, CURRENT_PLAYING
 
@@ -129,6 +127,7 @@ def video_player():
 
             cap.release()
             cv2.destroyAllWindows()
+
 
 if __name__ == '__main__':
     video_thread = threading.Thread(target=video_player, daemon=True)
