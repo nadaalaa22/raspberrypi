@@ -2,6 +2,10 @@ import cv2
 import threading
 import os
 from flask import Flask, request, jsonify, send_from_directory
+import pygame 
+from moviepy.editor import VideoFileClip # type: ignore
+import time
+
 
 app = Flask(__name__)
 
@@ -70,18 +74,22 @@ def update_settings():
     if not CURRENT_VIDEO:
         return jsonify({"message": "No video is currently playing"}), 400
 
-    
-    volume = data.get("volume", 1.0)  
+    volume = data.get("volume", 1.0)  # Default volume is 1.0
     action = data.get("action", "play")  
 
-   
     print(f"Updating settings: Volume={volume}, Action={action}")
+
     if action == "pause":
         CURRENT_PLAYING.clear()
+        pygame.mixer.music.pause()
     elif action == "play":
         CURRENT_PLAYING.set()
+        pygame.mixer.music.unpause()
+
+    pygame.mixer.music.set_volume(volume)  # Set volume (0.0 to 1.0)
 
     return jsonify({"message": "Settings updated successfully"}), 200
+
 
 @app.route('/videos/<video_name>', methods=['GET'])
 def get_video(video_name):
@@ -94,6 +102,7 @@ def get_video(video_name):
 
 def video_player():
     global CURRENT_VIDEO, CURRENT_PLAYING
+    pygame.mixer.init()  # Initialize pygame mixer for sound
 
     while True:
         CURRENT_PLAYING.wait()
@@ -104,17 +113,24 @@ def video_player():
             cap = cv2.VideoCapture(video_path)
             fps = cap.get(cv2.CAP_PROP_FPS)
 
+            # Extract audio
+            clip = VideoFileClip(video_path)
+            audio_path = "temp_audio.mp3"
+            clip.audio.write_audiofile(audio_path, logger=None)
+
+            pygame.mixer.music.load(audio_path)
+            pygame.mixer.music.play()
+
             while cap.isOpened() and CURRENT_VIDEO:
                 ret, frame = cap.read()
                 if not ret:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop the video
+                    pygame.mixer.music.play()  # Restart audio
                     continue
 
-                # Create a named window and set it to full screen
+                # Display video
                 cv2.namedWindow('Video Player', cv2.WINDOW_NORMAL)
                 cv2.setWindowProperty('Video Player', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
-                # Display the frame
                 cv2.imshow('Video Player', frame)
 
                 wait_time = int(1000 / fps) if fps > 0 else 30
@@ -127,7 +143,11 @@ def video_player():
 
             cap.release()
             cv2.destroyAllWindows()
+            pygame.mixer.music.stop()
 
+            # Clean up temporary audio file
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
 
 if __name__ == '__main__':
     video_thread = threading.Thread(target=video_player, daemon=True)
